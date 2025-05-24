@@ -147,7 +147,6 @@
       color: orange;
     }
 
-    /* ซ่อนกล่องข้อความปลุก ถ้า toggle ไม่เปิด */
     #wakeControls {
       display: none;
       flex-direction: column;
@@ -169,7 +168,7 @@
 
     <div class="controls">
       <input type="text" id="channel" placeholder="ชื่อแชนแนล (เช่น pokemyth)" />
-      
+
       <label for="voiceSelect">เลือกเสียงพูด:</label>
       <select id="voiceSelect"></select>
 
@@ -199,6 +198,10 @@
     let voiceIntervalId;
     let voices = [];
 
+    // คิวและสถานะการพูด
+    let speechQueue = [];
+    let isSpeaking = false;
+
     function setStatus(status, className) {
       const statusEl = document.getElementById('status');
       statusEl.innerText = status;
@@ -211,7 +214,6 @@
       body.classList.toggle('light');
     }
 
-    // โหลดเสียงจาก Web Speech API
     function loadVoices() {
       voices = speechSynthesis.getVoices();
       const voiceSelect = document.getElementById('voiceSelect');
@@ -229,7 +231,6 @@
         voiceSelect.appendChild(option);
       });
 
-      // ตั้งค่า default เป็นเสียงไทย ถ้ามี
       const thaiIndex = voices.findIndex(v => v.lang.startsWith('th'));
       if (thaiIndex >= 0) {
         voiceSelect.value = thaiIndex;
@@ -238,27 +239,34 @@
 
     window.speechSynthesis.onvoiceschanged = loadVoices;
 
-    // ซ่อน/แสดงกล่องข้อความปลุกตาม toggle
     document.getElementById('enableWake').addEventListener('change', e => {
-      const wakeControls = document.getElementById('wakeControls');
-      wakeControls.style.display = e.target.checked ? 'flex' : 'none';
+      document.getElementById('wakeControls').style.display = e.target.checked ? 'flex' : 'none';
     });
 
     function speak(text) {
-      if (!('speechSynthesis' in window)) {
-        alert('เบราว์เซอร์ของคุณไม่รองรับ Speech Synthesis API');
-        return;
-      }
-      if (speechSynthesis.speaking) {
-        speechSynthesis.cancel();
-      }
+      speechQueue.push(text);
+      processQueue();
+    }
+
+    function processQueue() {
+      if (isSpeaking || speechQueue.length === 0) return;
+
+      const text = speechQueue.shift();
       const utter = new SpeechSynthesisUtterance(text);
       const voiceIndex = document.getElementById('voiceSelect').value;
       if (voiceIndex && voices[voiceIndex]) {
         utter.voice = voices[voiceIndex];
+        utter.lang = voices[voiceIndex].lang;
       }
-      utter.lang = voices[voiceIndex]?.lang || 'th-TH';
-      utter.rate = 1; // ความเร็วพูด (ปรับได้)
+
+      utter.rate = 1;
+      isSpeaking = true;
+
+      utter.onend = () => {
+        isSpeaking = false;
+        processQueue();
+      };
+
       speechSynthesis.speak(utter);
     }
 
@@ -284,20 +292,18 @@
         }
       }
 
-      // ปิด socket เดิมถ้ามี
       if (socket) {
         socket.close();
         socket = null;
       }
 
-      // ล้าง interval เดิมถ้ามี
       if (voiceIntervalId) {
         clearInterval(voiceIntervalId);
         voiceIntervalId = null;
       }
 
       const intervalMs = intervalMinutes * 60 * 1000;
-      const nick = "justinfan" + Math.floor(Math.random() * 100000); // anonymous login
+      const nick = "justinfan" + Math.floor(Math.random() * 100000);
 
       connectToTwitch(nick, CHANNEL, enableWake, intervalMs, wakeMessage);
     }
@@ -325,7 +331,6 @@
       socket.onmessage = (event) => {
         const msg = event.data;
 
-        // ตรวจว่าเป็นข้อความของห้องแชทเท่านั้น
         if (msg.includes("PRIVMSG")) {
           const username = msg.split("!")[0].substring(1);
           const message = msg.split("PRIVMSG")[1].split(":")[1];
@@ -340,7 +345,6 @@
           chatBox.appendChild(div);
           chatBox.scrollTop = chatBox.scrollHeight;
 
-          // อ่านชื่อคนส่งหรือไม่ ตาม toggle
           const readUsername = document.getElementById('readUsername').checked;
           if (readUsername) {
             speak(`${username} พูดว่า ${message}`);
@@ -349,7 +353,6 @@
           }
         }
 
-        // ตอบ PING เพื่อคงการเชื่อมต่อ
         if (msg.startsWith("PING")) {
           socket.send("PONG :tmi.twitch.tv");
         }
@@ -369,7 +372,6 @@
       };
     }
 
-    // โหลดเสียงทันทีที่เปิดเพจ
     loadVoices();
   </script>
 </body>
